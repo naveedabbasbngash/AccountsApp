@@ -18,7 +18,6 @@ import com.mehfooz.accounts.app.data.BootstrapManager
 import com.mehfooz.accounts.app.data.DailyDebitsCredits
 import com.mehfooz.accounts.app.net.Downloader
 import com.mehfooz.accounts.app.ui.DashboardViewModel
-import com.mehfooz.accounts.app.ui.FinanceChartCardMp
 import com.mehfooz.accounts.app.ui.MonthTab
 import com.mehfooz.accounts.app.model.DayValue
 import com.mehfooz.accounts.app.ui.FinanceNeoCard
@@ -98,7 +97,7 @@ fun DashboardScreen(onLogout: () -> Unit) {
                 selectedTab = tab,
                 onTabChange = { vm.setTab(it) },
                 credits = credits,
-                debits  = debits,
+                debits = debits,
                 currency = "" // or "Rs", "$", etc.
             )
 

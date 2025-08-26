@@ -21,3 +21,6 @@ data class TransactionsP(
     val CrCents: Long?,        // INTEGER NULL
     val Status: String?        // NEW column (nullable TEXT)
 )
+
+
+

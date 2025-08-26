@@ -76,6 +76,6 @@ dependencies {
     kapt(libs.room.compiler)
     implementation(libs.navigation.compose)
     implementation(libs.accompanist.systemuicontroller)
-
+    implementation(libs.compose.icons.extended)
 
 }

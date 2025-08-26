@@ -92,25 +92,25 @@ fun FinanceNeoCard(
             ) {
                 if (selectedDay != null) {
                     Text(
-                        text = "+ $currency ${formatMoney(selectedCredit)}",
+                        text = "Jama: $currency ${formatMoney(selectedCredit)}",
                         color = androidx.compose.ui.graphics.Color(0xFF35D07F),
-                        style = MaterialTheme.typography.headlineMedium
+                        style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        text = "− $currency ${formatMoney(selectedDebit)}",
+                        text = "Banam: $currency ${formatMoney(selectedDebit)}",
                         color = androidx.compose.ui.graphics.Color(0xFFFF5A6E),
-                        style = MaterialTheme.typography.headlineMedium
+                        style = MaterialTheme.typography.titleMedium
                     )
                 } else {
                     Text(
-                        text = "+ $currency ${formatMoney(monthCredit)}",
+                        text = "Jama: $currency ${formatMoney(monthCredit)}",
                         color = androidx.compose.ui.graphics.Color(0xFF35D07F),
-                        style = MaterialTheme.typography.headlineMedium
+                        style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        text = "− $currency ${formatMoney(monthDebit)}",
+                        text = "Banam: $currency ${formatMoney(monthDebit)}",
                         color = androidx.compose.ui.graphics.Color(0xFFFF5A6E),
-                        style = MaterialTheme.typography.headlineMedium
+                        style = MaterialTheme.typography.titleMedium
                     )
                 }
             }
@@ -172,7 +172,7 @@ fun FinanceNeoCard(
                     val creditEntries = credits.sortedBy { it.day }.map { Entry(it.day.toFloat(), it.amountUnits) }
                     val debitEntries  = debits.sortedBy  { it.day }.map { Entry(it.day.toFloat(), it.amountUnits) }
 
-                    val creditSet = LineDataSet(creditEntries, "Credit").apply {
+                    val creditSet = LineDataSet(creditEntries, "Credit (Jama)").apply {
                         val gA = Color.argb(190, Color.red(green), Color.green(green), Color.blue(green))
                         color = gA
                         lineWidth = 2.8f
@@ -188,7 +188,7 @@ fun FinanceNeoCard(
                         highLightColor = Color.argb(160, 255,255,255)
                     }
 
-                    val debitSet = LineDataSet(debitEntries, "Debit").apply {
+                    val debitSet = LineDataSet(debitEntries, "Debit (Banam)").apply {
                         color = red
                         lineWidth = 3.0f
                         mode = LineDataSet.Mode.CUBIC_BEZIER
@@ -209,8 +209,8 @@ fun FinanceNeoCard(
                     chart.data = LineData(debitSet, creditSet)
                     chart.marker = ChartBalloonMarker(
                         chart = chart,
-                        creditLabel = "Credit",
-                        debitLabel = "Debit"
+                        creditLabel = "Credit (Jama)",
+                        debitLabel = "Debit (Banam)"
                     )
 
                     chart.setOnChartValueSelectedListener(object : OnChartValueSelectedListener {
@@ -293,7 +293,7 @@ private class BalloonMarker(
         val cr = mutableMapOf<Int, Double>()
         val dr = mutableMapOf<Int, Double>()
         chart.data?.dataSets?.forEach { ds ->
-            val isCredit = ds.label.equals("Credit", ignoreCase = true)
+            val isCredit = ds.label.equals("Credit (Jama)", ignoreCase = true)
             for (i in 0 until ds.entryCount) {
                 val e = ds.getEntryForIndex(i)
                 val day = e.x.toInt()
