@@ -9,6 +9,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -23,8 +24,13 @@ object BootstrapManager {
             .build()
     }
 
-    // -------------------------------- Public APIs --------------------------------
+    // -------------------------------------------------------------------------
+    // Public APIs
+    // -------------------------------------------------------------------------
 
+    /**
+     * Full bootstrap from a remote URL (download -> validate -> normalize -> swap).
+     */
     suspend fun bootstrapFromFull(
         context: Context,
         url: String,
@@ -44,9 +50,12 @@ object BootstrapManager {
         Log.i(TAG, "Bootstrap complete → ${live.absolutePath}")
     }
 
+    /**
+     * Import a seed DB bundled in /assets.
+     */
     suspend fun importFromAsset(
         context: Context,
-        assetPath: String,               // e.g. "live_seed.sqlite" under app/src/main/assets/
+        assetPath: String,               // e.g. "live_seed.sqlite"
         onProgress: ((Int) -> Unit)? = null
     ) = withContext(Dispatchers.IO) {
         val (live, incoming, _) = DbManager.paths(context)
@@ -65,6 +74,7 @@ object BootstrapManager {
                     if (r <= 0) break
                     output.write(buf, 0, r)
                     total += r
+                    // fake progress up to ~90%
                     onProgress?.invoke(((total % 90_000) / 900).toInt().coerceIn(1, 90))
                 }
                 output.fd.sync()
@@ -75,7 +85,7 @@ object BootstrapManager {
         // Validate + normalize for Room
         require(DbManager.integrityCheck(incoming)) { "Asset DB failed integrity_check" }
         require(hasRequiredTables(incoming)) { "Asset DB missing required tables" }
-        normalizeIncomingSchemaToRoom(incoming) // ensures PKs, indices, and Status column
+        normalizeIncomingSchemaToRoom(incoming)
         onProgress?.invoke(96)
 
         // Swap incoming -> live
@@ -86,7 +96,44 @@ object BootstrapManager {
         Log.i(TAG, "Local asset import complete → ${live.absolutePath}")
     }
 
-    // ------------------------------- Helpers -------------------------------------
+    /**
+     * NEW: Import a SQLite file the user picked (e.g., from WhatsApp/Drive/Files).
+     * - Copies the given file into the app’s staging area
+     * - Validates, normalizes, and atomically swaps it in
+     */
+    suspend fun importFromFile(
+        context: Context,
+        pickedFile: File,
+        onProgress: ((Int) -> Unit)? = null
+    ) = withContext(Dispatchers.IO) {
+        require(pickedFile.exists() && pickedFile.length() > 0L) {
+            "Selected file is missing or empty"
+        }
+
+        val (live, incoming, _) = DbManager.paths(context)
+        incoming.parentFile?.mkdirs()
+        if (incoming.exists()) incoming.delete()
+
+        // Copy with progress
+        copyFileWithProgress(pickedFile, incoming) { pct -> onProgress?.invoke(pct.coerceIn(0, 90)) }
+
+        // Validate + normalize for Room
+        require(DbManager.integrityCheck(incoming)) { "Picked DB failed integrity_check" }
+        require(hasRequiredTables(incoming)) { "Picked DB missing required tables" }
+        normalizeIncomingSchemaToRoom(incoming)
+        onProgress?.invoke(96)
+
+        // Swap incoming -> live
+        require(DbManager.atomicSwap(context, incoming)) { "Atomic swap failed" }
+        seedMetaDefaults(context)
+        onProgress?.invoke(100)
+
+        Log.i(TAG, "Import-from-file complete → ${live.absolutePath}")
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
 
     private suspend fun downloadToFile(
         url: String,
@@ -122,6 +169,28 @@ object BootstrapManager {
         }
     }
 
+    private fun copyFileWithProgress(
+        from: File,
+        to: File,
+        onProgress: ((Int) -> Unit)?
+    ) {
+        val total = from.length().coerceAtLeast(1L)
+        var written = 0L
+        FileInputStream(from).use { input ->
+            FileOutputStream(to).use { output ->
+                val buf = ByteArray(2 * 1024 * 1024)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n <= 0) break
+                    output.write(buf, 0, n)
+                    written += n
+                    onProgress?.invoke(((written * 100) / total).toInt())
+                }
+                output.fd.sync()
+            }
+        }
+    }
+
     private fun hasRequiredTables(dbFile: File): Boolean {
         return try {
             android.database.sqlite.SQLiteDatabase.openDatabase(
@@ -134,15 +203,14 @@ object BootstrapManager {
                         arrayOf(name)
                     ).use { c -> c.moveToFirst() }
                 }
-
-                val ok = exists("Acc_Personal") && exists("AccType") && exists("Transactions_P")
-                ok  // <-- return this from the lambda
+                exists("Acc_Personal") && exists("AccType") && exists("Transactions_P")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Schema check failed: ${e.message}")
             false
         }
     }
+
     /**
      * Normalize the imported DB so Room validation passes:
      *  - Ensure PKs are INTEGER NOT NULL PRIMARY KEY (Acc_Personal, AccType, Transactions_P)
@@ -192,7 +260,7 @@ object BootstrapManager {
         // ---- Acc_Personal: PK NOT NULL ----
         fun recreateAccPersonalIfNeeded() {
             if (tableExists("Acc_Personal") && isPkNotNull("Acc_Personal", "AccID")) return
-            if (!tableExists("Acc_Personal")) return // nothing to do if it's not even there
+            if (!tableExists("Acc_Personal")) return
             db.beginTransaction()
             try {
                 db.execSQL(
@@ -274,7 +342,7 @@ object BootstrapManager {
                 return
             }
 
-            // If PK is NOT correct OR we want to guarantee shape in one pass => recreate table
+            // If PK is NOT correct OR Status absent, recreate table
             if (!pkOk || !hasStatus) {
                 db.beginTransaction()
                 try {
@@ -322,7 +390,7 @@ object BootstrapManager {
                 return
             }
 
-            // If we get here, PK ok and Status already existed; just ensure indices.
+            // PK ok and Status already existed; just ensure indices.
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_TP_TDate ON Transactions_P(TDate);")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_TP_AccID ON Transactions_P(AccID);")
         }
@@ -332,11 +400,11 @@ object BootstrapManager {
             if (!tableExists("Meta")) {
                 db.execSQL(
                     """
-            CREATE TABLE IF NOT EXISTS `Meta` (
-              `key`   TEXT NOT NULL PRIMARY KEY,
-              `value` TEXT NOT NULL
-            );
-            """.trimIndent()
+                    CREATE TABLE IF NOT EXISTS `Meta` (
+                      `key`   TEXT NOT NULL PRIMARY KEY,
+                      `value` TEXT NOT NULL
+                    );
+                    """.trimIndent()
                 )
                 return
             }
@@ -350,15 +418,16 @@ object BootstrapManager {
                     db.execSQL("DROP TABLE IF EXISTS `Meta`;")
                     db.execSQL(
                         """
-                CREATE TABLE `Meta` (
-                  `key`   TEXT NOT NULL PRIMARY KEY,
-                  `value` TEXT NOT NULL
-                );
-                """.trimIndent()
+                        CREATE TABLE `Meta` (
+                          `key`   TEXT NOT NULL PRIMARY KEY,
+                          `value` TEXT NOT NULL
+                        );
+                        """.trimIndent()
                     )
                 }
             }
         }
+
         recreateAccPersonalIfNeeded()
         recreateAccTypeIfNeeded()
         recreateTransactionsPIfNeededOrAddStatus()

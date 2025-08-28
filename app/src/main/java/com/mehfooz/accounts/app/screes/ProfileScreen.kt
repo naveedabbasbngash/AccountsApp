@@ -1,6 +1,9 @@
 package com.mehfooz.accounts.app.ui
 
+import android.content.Intent
 import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -42,7 +45,7 @@ private val Danger   = JColor(0xFFC62828)
 private val Muted    = JColor(0xFF6B7280)
 
 /* =========================================================
-   PROFILE SCREEN (polished)
+   PROFILE SCREEN
    ========================================================= */
 @Composable
 fun ProfileScreen(onLogout: () -> Unit) {
@@ -67,29 +70,81 @@ fun ProfileScreen(onLogout: () -> Unit) {
         txCount = AppDatabase.get(ctx).transactionsP().count()
     }
 
+    /* ---------- NEW: File picker for SQLite import ---------- */
+    val pickDbLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            try {
+                isError = false
+                downloading = true
+                progress = 0f
+                status = "Preparing selected file…"
+
+                // Persist permission (so app can read again later if needed)
+                runCatching {
+                    ctx.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                }
+
+                // Copy picked URI to a temp file we control
+                val temp = File(ctx.cacheDir, "picked_sqlite_${System.currentTimeMillis()}.sqlite")
+                ctx.contentResolver.openInputStream(uri)?.use { input ->
+                    temp.outputStream().use { output ->
+                        val buf = ByteArray(DEFAULT_BUFFER_SIZE)
+                        var total = 0L
+                        while (true) {
+                            val r = input.read(buf)
+                            if (r <= 0) break
+                            output.write(buf, 0, r)
+                            total += r
+                            // simple animated progress (not exact size known)
+                            progress = ((total % (5 * 1024 * 1024)) / (5f * 1024f * 1024f)).coerceIn(0f, 1f)
+                        }
+                    }
+                }
+
+                status = "Importing selected database…"
+                // Requires BootstrapManager.importFromFile(ctx, temp) — I’ll give it next
+                BootstrapManager.importFromFile(ctx, temp)
+
+                // Refresh counts
+                val total = AppDatabase.get(ctx).transactionsP().count()
+                txCount = total
+                status = "Import complete. Transactions: $total"
+            } catch (e: Exception) {
+                isError = true
+                status = "Import error: ${(e.message ?: "unknown").take(300)}"
+                Log.e(TAG, "Import-from-file error", e)
+            } finally {
+                downloading = false
+                progress = 0f
+            }
+        }
+    }
+
     // Top surface keeps your deep-blue background across the whole screen
     Surface(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.navigationBars), // plays nice with bottom nav
+            .windowInsetsPadding(WindowInsets.navigationBars),
         color = DeepBlue
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-        ) {
-            /* ---------- Header strip ---------- */
+        Column(Modifier.fillMaxSize()) {
+            /* ---------- Header ---------- */
             LargeTopBar(
                 title = "Profile",
                 subtitle = user?.email ?: user?.uid ?: "Signed in",
             )
 
             /* ---------- Body list ---------- */
-            // Use a LazyColumn so everything scrolls smoothly, even while a LinearProgress animates
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 12.dp), // 🔧 side spacing; change here
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(bottom = 8.dp)
             ) {
@@ -141,7 +196,33 @@ fun ProfileScreen(onLogout: () -> Unit) {
                             Icon(Icons.Outlined.Storage, contentDescription = null)
                             Spacer(Modifier.width(ButtonDefaults.IconSpacing))
                             Text("Load Local DB (assets)")
-                        }                    }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        /* ---------- NEW: Import DB from file (WhatsApp/Drive/Files) ---------- */
+                        FilledTonalButton(
+                            enabled = !downloading,
+                            onClick = {
+                                pickDbLauncher.launch(
+                                    arrayOf(
+                                        "application/x-sqlite3",
+                                        "application/vnd.sqlite3",
+                                        "application/octet-stream",
+                                        "application/db",
+                                        "application/vnd.sqlite",
+                                        "application/*",
+                                        "*/*" // fallback — many apps share with generic MIME
+                                    )
+                                )
+                            },
+                            contentPadding = ButtonDefaults.ButtonWithIconContentPadding
+                        ) {
+                            Icon(Icons.Outlined.Storage, contentDescription = null)
+                            Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                            Text("Import DB from file")
+                        }
+                    }
                 }
 
                 // Server sync
@@ -225,7 +306,7 @@ fun ProfileScreen(onLogout: () -> Unit) {
                     }
                 }
 
-                // Extra bottom padding so last card doesn't collide with bottom nav
+                // Bottom space
                 item { Spacer(Modifier.height(8.dp)) }
             }
         }
@@ -240,7 +321,7 @@ fun ProfileScreen(onLogout: () -> Unit) {
                 val email = user?.email
                 if (email.isNullOrBlank()) {
                     isError = true
-                    status = "No email on Google account. Please re‑sign in."
+                    status = "No email on Google account. Please re-sign in."
                     return@OtpDialog
                 }
                 scope.launch {
@@ -335,7 +416,7 @@ private fun SectionCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.elevatedCardColors(containerColor = CardBg),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
-        shape = MaterialTheme.shapes.large // nice rounded corners
+        shape = MaterialTheme.shapes.large
     ) {
         Column(
             modifier = Modifier
@@ -407,7 +488,7 @@ private fun OtpDialog(onDismiss: () -> Unit, onVerify: (otp: String) -> Unit) {
             OutlinedTextField(
                 value = otp,
                 onValueChange = { if (it.length <= 6) otp = it.filter(Char::isDigit) },
-                label = { Text("6‑digit OTP") },
+                label = { Text("6-digit OTP") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
