@@ -79,6 +79,9 @@ dependencies {
     implementation(libs.accompanist.systemuicontroller)
     implementation(libs.compose.icons.extended)
     implementation(platform("androidx.compose:compose-bom:2024.09.00"))
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.converter.gson)
+    implementation(libs.okhttp.logging)
 
 
 }
