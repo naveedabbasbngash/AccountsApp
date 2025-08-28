@@ -25,22 +25,22 @@ data class TxItemUi(
     val amountUnits: Float get() = if (isCredit) crUnits else drUnits
 }
 
-/** Single summary (if you still need a one-line person summary somewhere) */
+/** One-line person summary (optional) */
 data class BalanceUi(
     val accId: Long,
     val name: String,
-    val currency: String,   // AccTypeName (can be generic if you aggregate)
+    val currency: String,   // AccTypeName
     val creditUnits: Float,
     val debitUnits: Float,
     val balanceUnits: Float // credit - debit
 )
 
-/** Per-currency rows for the searched person (used by the Balance tab) */
+/** Per-currency rows for the searched person (Balance tab) */
 data class BalanceCurrencyUi(
     val currency: String,
     val creditUnits: Float,
     val debitUnits: Float,
-    val balanceUnits: Float    // credit - debit
+    val balanceUnits: Float
 )
 
 @OptIn(FlowPreview::class)
@@ -60,9 +60,14 @@ class TransactionsViewModel(app: Application) : AndroidViewModel(app) {
     private val _dateRange = MutableStateFlow<Pair<String?, String?>>(null to null)
     val dateRange: StateFlow<Pair<String?, String?>> = _dateRange
 
+    // NEW: currency filter (null = all)
+    private val _selectedCurrency = MutableStateFlow<String?>(null)
+    val selectedCurrency: StateFlow<String?> = _selectedCurrency
+
     fun setSearch(s: String) { _search.value = s }
     fun setFilter(f: TxFilter) { _filter.value = f }
     fun setDateRange(startIso: String?, endIso: String?) { _dateRange.value = startIso to endIso }
+    fun setSelectedCurrency(cur: String?) { _selectedCurrency.value = cur }
 
     /* ---------------- Mappers ---------------- */
 
@@ -100,14 +105,15 @@ class TransactionsViewModel(app: Application) : AndroidViewModel(app) {
 
     /* ---------------- Flows for UI ---------------- */
 
-    // Transactions list respecting search, chip filter and optional date range
+    // Transactions list respecting search, chip filter, optional date range, and currency filter
     val items: StateFlow<List<TxItemUi>> =
         combine(
             search.debounce(300).map { it.trim() },
             filter,
-            dateRange
-        ) { q, f, dr -> Triple(q, f, dr) }
-            .flatMapLatest { (q, f, dr) ->
+            dateRange,
+            selectedCurrency
+        ) { q, f, dr, cur -> Quad(q, f, dr, cur) }
+            .flatMapLatest { (q, f, dr, cur) ->
                 val (start, end) = dr
                 dao.lastTransactions(
                     limit     = 100,
@@ -115,18 +121,20 @@ class TransactionsViewModel(app: Application) : AndroidViewModel(app) {
                     only      = f.name,      // "ALL" / "DEBIT" / "CREDIT"
                     startDate = start,       // yyyy-MM-dd or null
                     endDate   = end          // yyyy-MM-dd or null
-                )
+                ).map { rows ->
+                    val mapped = rows.map { it.toUi() }
+                    if (cur.isNullOrBlank()) mapped
+                    else mapped.filter { it.currency.equals(cur, ignoreCase = true) }
+                }
             }
-            .map { rows -> rows.map { it.toUi() } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    // Single-line balance summary for the searched name (if needed).
-    // When search is blank → null (UI can hide it).
+    // Single-line balance summary for the searched name (optional)
     val balance: StateFlow<BalanceUi?> =
         combine(
             search.debounce(300).map { it.trim() },
             dateRange
-        ) { q, dr -> Pair(q, dr) }
+        ) { q, dr -> q to dr }
             .flatMapLatest { (q, dr) ->
                 val (start, end) = dr
                 if (q.isBlank()) {
@@ -138,7 +146,7 @@ class TransactionsViewModel(app: Application) : AndroidViewModel(app) {
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    // Per-currency balance list for the searched name (drives your Balance tab)
+    // Per-currency balance list for the searched name (drives Balance tab)
     val balanceByCurrency: StateFlow<List<BalanceCurrencyUi>> =
         combine(
             search.debounce(300).map { it.trim() },
@@ -158,4 +166,32 @@ class TransactionsViewModel(app: Application) : AndroidViewModel(app) {
             }
             .map { rows -> rows.map { it.toUi() } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // NEW: list of currencies for the Currency chip (derived from balanceByCurrency)
+    val currenciesForSearch: StateFlow<List<String>> =
+        balanceByCurrency
+            .map { list ->
+                list.map { it.currency }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .sorted()
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // If user clears search, reset currency filter to "All"
+    init {
+        viewModelScope.launch {
+            search.collect { q ->
+                if (q.isBlank()) _selectedCurrency.value = null
+            }
+        }
+    }
 }
+
+/** tiny helper for combine of 4 values */
+private data class Quad<A, B, C, D>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D
+)

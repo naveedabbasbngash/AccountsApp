@@ -83,31 +83,32 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         val crUnits: Double,
         val drUnits: Double
     )
-
     val pieByCurrency: StateFlow<List<CurrencyPieBucket>> =
-        selectedYm.flatMapLatest { ym ->
-            if (ym == null) {
-                flowOf(emptyList())
-            } else {
-                // Try to call a DAO query. If not present yet, fallback to empty.
-                // Replace `dao.sumsByCurrency(ym)` with your actual DAO function name once added.
-                (runCatching { dao.sumsByCurrency(ym) } // <-- add this DAO; see snippet below
-                    .getOrNull() ?: flowOf(emptyList()))
-                    .map { rows ->
-                        rows.map { r ->
-                            CurrencyPieBucket(
-                                currency = r.currency.ifBlank { "Unknown" },
-                                currencySymbol = symbolFor(r.currency),
-                                slices = listOf(
-                                    PieSlice("Credit", r.crUnits.toFloat()),
-                                    PieSlice("Debit",  r.drUnits.toFloat())
-                                )
-                            )
-                        }
-                    }
-            }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        dao.simpleCurrencySummaryAll()
+            .map { rows ->
+                rows.map { r ->
+                    val creditUnits = r.cr / 100.0f
+                    val debitUnits  = r.dr / 100.0f
+                    val balanceUnits = r.balance / 100.0f
 
+                    // 🔹 Add log for each row
+                    android.util.Log.d(
+                        "DashboardVM",
+                        "Currency=${r.currency}, crCents=${r.cr}, drCents=${r.dr}, " +
+                                "balanceCents=${r.balance} | crUnits=$creditUnits, drUnits=$debitUnits, balanceUnits=$balanceUnits"
+                    )
+
+                    CurrencyPieBucket(
+                        currency = r.currency.ifBlank { "Unknown" },
+                        currencySymbol = symbolFor(r.currency),
+                        slices = listOf(
+                            PieSlice("Credit", creditUnits),
+                            PieSlice("Debit",  debitUnits)
+                        )
+                    )
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private fun symbolFor(currencyName: String): String =
         when (currencyName.uppercase()) {
             "USD", "US DOLLAR", "DOLLAR", "UNITED STATES DOLLAR" -> "$"

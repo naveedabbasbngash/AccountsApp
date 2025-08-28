@@ -90,29 +90,7 @@ fun FinanceNeoCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                if (selectedDay != null) {
-                    Text(
-                        text = "Jama: $currency ${formatMoney(selectedCredit)}",
-                        color = androidx.compose.ui.graphics.Color(0xFF35D07F),
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        text = "Banam: $currency ${formatMoney(selectedDebit)}",
-                        color = androidx.compose.ui.graphics.Color(0xFFFF5A6E),
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                } else {
-                    Text(
-                        text = "Jama: $currency ${formatMoney(monthCredit)}",
-                        color = androidx.compose.ui.graphics.Color(0xFF35D07F),
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        text = "Banam: $currency ${formatMoney(monthDebit)}",
-                        color = androidx.compose.ui.graphics.Color(0xFFFF5A6E),
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                }
+
             }
 
             // chart

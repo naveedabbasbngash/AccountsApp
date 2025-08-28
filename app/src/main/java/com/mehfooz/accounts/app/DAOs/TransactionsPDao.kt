@@ -354,7 +354,7 @@ ORDER BY at.AccTypeName COLLATE NOCASE ASC
     GROUP BY currency
     ORDER BY currency
 """)
-    fun sumsByCurrency(ym: String): Flow<List<DashboardViewModel.CurrencyBreak>>
+    fun sumsByCurrency(ym: String): Flow<List<CurrencyBreak>>
 
 
     // In TransactionsPDao
@@ -524,4 +524,26 @@ LIMIT 1
         startDate: String?,   // yyyy-MM-dd or null
         endDate: String?      // yyyy-MM-dd or null
     ): kotlinx.coroutines.flow.Flow<List<BalanceCurrencyRow>>
+
+
+
+    data class SimpleCurrencySummary(
+        val currency: String,   // AccTypeName
+        val dr: Long,           // summed DrCents
+        val cr: Long,           // summed CrCents
+        val balance: Long       // cr - dr (still in cents)
+    )
+
+    @Query("""
+    SELECT 
+        at.AccTypeName AS currency,
+        SUM(t.DrCents) AS dr,
+        SUM(t.CrCents) AS cr,
+        SUM(t.CrCents) - SUM(t.DrCents) AS balance
+    FROM Transactions_P t
+    INNER JOIN AccType at ON t.AccTypeID = at.AccTypeID
+    GROUP BY at.AccTypeName
+    ORDER BY at.AccTypeName COLLATE NOCASE ASC
+""")
+    fun simpleCurrencySummaryAll(): Flow<List<SimpleCurrencySummary>>
 }

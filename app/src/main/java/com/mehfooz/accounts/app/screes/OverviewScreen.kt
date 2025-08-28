@@ -10,6 +10,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color as JColor
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -174,40 +176,39 @@ fun CurrencyBreakdownCard(
 private fun CurrencyRow(
     name: String,
     symbol: String,
-    slices: List<DashboardViewModel.PieSlice>, // expect 2 slices: ["Credit", v], ["Debit", v]
+    slices: List<DashboardViewModel.PieSlice>, // ["Credit", v], ["Debit", v]
     green: JColor,
     red: JColor
 ) {
-    // Pull values from slices (case-insensitive match)
     val cr = remember(slices) { slices.firstOrNull { it.label.equals("credit", true) }?.value ?: 0f }
     val dr = remember(slices) { slices.firstOrNull { it.label.equals("debit",  true) }?.value ?: 0f }
+    val balance = remember(cr, dr) { cr - dr }
+    val balColor = if (balance >= 0f) green else red
 
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // LEFT: title + Credit (top) + Debit (bottom)
+        // LEFT side
         Column(
             modifier = Modifier
                 .weight(1f)
-                .padding(end = 10.dp), // 🔧 gap between text column and mini pie
+                .padding(end = 10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(name, color = JColor(0xFF0B1E3A), style = MaterialTheme.typography.titleSmall)
 
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                // Credit on top
-                Column(horizontalAlignment = Alignment.Start) {
-                    Text("Credit - Jama", color = JColor(0xFF6B7280), style = MaterialTheme.typography.bodySmall)
+                Column {
+                    Text("Credit • Jama", color = JColor(0xFF6B7280), style = MaterialTheme.typography.bodySmall)
                     Text(
                         text = "${if (symbol.isNotBlank()) "$symbol " else ""}${money(cr)}",
                         color = green,
                         style = MaterialTheme.typography.bodyLarge
                     )
                 }
-                // Debit below
-                Column(horizontalAlignment = Alignment.Start) {
-                    Text("Debit - Banam", color = JColor(0xFF6B7280), style = MaterialTheme.typography.bodySmall)
+                Column {
+                    Text("Debit • Banam", color = JColor(0xFF6B7280), style = MaterialTheme.typography.bodySmall)
                     Text(
                         text = "${if (symbol.isNotBlank()) "$symbol " else ""}${money(dr)}",
                         color = red,
@@ -217,17 +218,37 @@ private fun CurrencyRow(
             }
         }
 
-        // RIGHT: small pie (kept very light for smoothness)
-        MiniCreditDebitPie(
-            credit = cr,
-            debit = dr,
-            size = 100.dp, // 🔧 change this to make the mini pie bigger/smaller
-            green = android.graphics.Color.parseColor("#2E7D32"),
-            red = android.graphics.Color.parseColor("#C62828")
-        )
+        // RIGHT side — fixed width so pies & balance align
+        Column(
+            modifier = Modifier.width(140.dp), // wider to prevent "Rs" wrapping
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier.size(90.dp), // fixed pie size
+                contentAlignment = Alignment.Center
+            ) {
+                MiniCreditDebitPie(
+                    credit = cr,
+                    debit  = dr,
+                    size   = 90.dp,
+                    green  = android.graphics.Color.parseColor("#2E7D32"),
+                    red    = android.graphics.Color.parseColor("#C62828")
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text("Balance", color = JColor(0xFF6B7280), style = MaterialTheme.typography.bodySmall)
+            Text(
+                text = "${if (symbol.isNotBlank()) "$symbol " else ""}${money(balance)}",
+                color = balColor,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,          // keep on one line
+                softWrap = false,      // don't wrap "Rs" to its own line
+                overflow = TextOverflow.Clip
+            )
+        }
     }
 }
-
 /* ---------------- tiny (safe) MPAndroidChart pie ---------------- */
 @Composable
 fun MiniCreditDebitPie(
